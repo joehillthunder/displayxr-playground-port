@@ -2,23 +2,187 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Playground Port</title>
-<link rel="icon" href="data:,">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DisplayXR Playground</title>
+<meta name="description" content="A live 3D playground: climb, slide, swing, jump into the ball pit and play with the other kids. Glasses-free 3D with DisplayXR, 2D in any browser.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='20' cy='44' r='12' fill='%23ff5252'/%3E%3Ccircle cx='40' cy='40' r='12' fill='%233f8fff'/%3E%3Ccircle cx='30' cy='22' r='12' fill='%23ffd23f'/%3E%3C/svg%3E">
 <style>
-  :root { color-scheme: dark; --bg: #0b0d12; --text: #e7eaf0; --muted: #98a0b3; }
-  html, body { margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 640px; margin: 0 auto; padding: 64px 16px; }
-  p { color: var(--muted); }
-  a { color: #5b8cff; }
+  :root {
+    color-scheme: light;
+    --ink: #22304a;
+    --muted: #5b6a85;
+    --panel: rgba(255, 255, 255, 0.86);
+    --line: rgba(34, 48, 74, 0.14);
+    --accent: #ff5252;
+    --blue: #2f7fe0;
+    --ok: #1f9d55;
+    --kbd: #eef2f8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #bfe3ff; color: var(--ink);
+    font: 15px/1.4 "Trebuchet MS", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100dvh; display: block; touch-action: none; outline: none; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 6px 24px rgba(30, 60, 110, 0.14);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  kbd { display: inline-block; min-width: 1.6em; padding: 0 6px; border-radius: 6px; background: var(--kbd); border: 1px solid var(--line);
+    border-bottom-width: 2px; font: 600 13px/1.6 ui-monospace, Consolas, monospace; text-align: center; }
+
+  /* top left: title, badge, settings */
+  #top { position: fixed; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, calc(100vw - 24px)); z-index: 3; }
+  #title { padding: 10px 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #title h1 { margin: 0; font-size: 19px; letter-spacing: 0.2px; }
+  #title h1 span:nth-child(1) { color: #ff5252; } #title h1 span:nth-child(2) { color: #ffa21f; }
+  #title h1 span:nth-child(3) { color: #1f9d55; } #title h1 span:nth-child(4) { color: #2f7fe0; }
+  #badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #e7ecf4; color: var(--muted); }
+  #badge[data-kind="ok"] { background: #dff5e8; color: var(--ok); }
+  #tools { padding: 8px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+  #tools label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  #tools input[type=range] { width: 90px; accent-color: var(--blue); }
+  .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 10px; font-size: 13px; }
+  .chip:hover { background: #f3f7fc; }
+  #fps { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); }
+
+  /* stickers, top right */
+  #stickers { position: fixed; top: 12px; right: 12px; width: 268px; max-height: calc(100vh - 120px); overflow: auto; padding: 10px 12px; z-index: 3; }
+  #stickers header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #stickers h2 { margin: 0; font-size: 15px; }
+  #sticker-count { font-weight: 700; color: var(--blue); }
+  #sticker-list { list-style: none; margin: 8px 0 4px; padding: 0; display: grid; gap: 4px; }
+  #sticker-list li { display: flex; gap: 8px; align-items: flex-start; padding: 4px 6px; border-radius: 10px; }
+  #sticker-list li b { display: block; font-size: 13px; }
+  #sticker-list li small { color: var(--muted); font-size: 11.5px; }
+  #sticker-list .dot { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 50%; border: 2px dashed #b7c3d6; }
+  #sticker-list li.got { background: #fff6d6; }
+  #sticker-list li.got .dot { border: none; background: radial-gradient(circle at 35% 35%, #fff59a, #ffb300); box-shadow: 0 0 0 2px #ffd23f; }
+  #sticker-list li.got .dot::after { content: "\2713"; display: block; text-align: center; font: 700 12px/18px system-ui; color: #7a4a00; }
+  #stickers.collapsed #sticker-list, #stickers.collapsed #reset-stickers { display: none; }
+  #reset-stickers { border: none; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; padding: 2px 0; }
+
+  /* prompt + toast */
+  #prompt { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px); opacity: 0; transition: opacity .15s, transform .15s;
+    padding: 10px 18px; font-size: 17px; font-weight: 700; white-space: nowrap; z-index: 3; pointer-events: none; }
+  #prompt.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast { position: fixed; left: 50%; top: 18px; transform: translate(-50%, -16px); opacity: 0; transition: opacity .2s, transform .2s;
+    padding: 10px 18px; font-weight: 700; z-index: 4; pointer-events: none; background: #fffbe6; border-color: #ffd23f; text-align: center; max-width: calc(100vw - 32px); }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast[data-kind="big"] { font-size: 22px; padding: 14px 24px; }
+
+  /* help */
+  #help { position: fixed; left: 12px; bottom: 12px; padding: 10px 12px; font-size: 13px; z-index: 2; max-width: 300px; }
+  #help ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+  #help .muted { color: var(--muted); }
+
+  /* touch controls */
+  #touch { display: none; }
+  @media (pointer: coarse) {
+    #help { display: none; }
+    #touch { display: block; }
+    #prompt { bottom: 150px; font-size: 15px; white-space: normal; text-align: center; max-width: 70vw; }
+    #stickers { width: 220px; }
+    #stickers:not(.collapsed) { max-height: 50vh; }
+  }
+  .tbtn { position: fixed; z-index: 3; width: 84px; height: 84px; border-radius: 50%; border: 3px solid rgba(255,255,255,.9);
+    font-weight: 800; font-size: 14px; color: #fff; box-shadow: 0 6px 18px rgba(0,0,0,.2); touch-action: none; user-select: none; -webkit-user-select: none; }
+  #btn-jump { right: 24px; bottom: 28px; background: var(--blue); }
+  #btn-action { right: 118px; bottom: 56px; width: 76px; height: 76px; background: #8a96aa; font-size: 12px; line-height: 1.1; padding: 4px; }
+  #btn-action.lit { background: var(--accent); }
+  #stick { position: fixed; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: rgba(255,255,255,.35);
+    border: 2px solid rgba(255,255,255,.8); z-index: 3; pointer-events: none; display: none; }
+  #stick.on { display: block; }
+  #stick-knob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.9); }
+  body:not(.playing) #touch, body:not(.playing) #prompt { display: none; }
+
+  /* kid picker */
+  #picker { position: fixed; inset: 0; display: grid; place-items: center; z-index: 5; background: rgba(191, 227, 255, 0.25); padding: 16px; }
+  #picker[hidden] { display: none; }
+  #picker .card { padding: 22px 22px 18px; max-width: 560px; width: 100%; text-align: center; position: relative; }
+  #picker h2 { margin: 0 0 4px; font-size: 26px; }
+  #picker p { margin: 0 0 16px; color: var(--muted); }
+  #kid-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 480px) { #kid-cards { grid-template-columns: repeat(2, 1fr); } }
+  .kid { border: 2px solid var(--line); background: #fff; border-radius: 16px; padding: 12px 6px 10px; display: grid; justify-items: center; gap: 6px; transition: transform .12s, border-color .12s; }
+  .kid:hover, .kid:focus-visible { transform: translateY(-3px); border-color: var(--blue); outline: none; }
+  .kid[aria-current] { border-color: var(--accent); }
+  .avatar { position: relative; width: 56px; height: 86px; display: block; }
+  .avatar i { position: absolute; left: 50%; transform: translateX(-50%); display: block; }
+  .avatar .h { top: 0; width: 38px; height: 22px; border-radius: 20px 20px 6px 6px; background: var(--hair); z-index: 2; }
+  .avatar .f { top: 4px; width: 36px; height: 36px; border-radius: 50%; background: var(--skin); }
+  .avatar .s { top: 38px; width: 34px; height: 30px; border-radius: 12px 12px 6px 6px; background: var(--shirt); }
+  .avatar .p { top: 64px; width: 28px; height: 22px; border-radius: 4px 4px 8px 8px; background: var(--pants); }
+  .kid b { font-size: 16px; }
+  #picker-close { position: absolute; top: 10px; right: 12px; border: none; background: none; font-size: 22px; color: var(--muted); }
+  #picker small { display: block; margin-top: 14px; color: var(--muted); }
+
+  @media (max-width: 640px) {
+    #stickers { top: auto; bottom: 12px; right: 12px; }
+    body.playing #stickers { bottom: 130px; }
+    #help { display: none; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <h1>Playground Port</h1>
-  <p>A game designed in a no-code tool, rebuilt for glasses-free 3D with DisplayXR. Coming soon.</p>
-  <p><a href="https://github.com/joehillthunder/displayxr-playground-port">Source on GitHub</a></p>
-</main>
+<canvas id="stage" tabindex="0" aria-label="A 3D playground. Use the arrow keys or WASD to move, Space to jump, E to use things."></canvas>
+
+<div id="top">
+  <div id="title" class="panel">
+    <h1><span>Play</span><span>gro</span><span>un</span><span>d</span></h1>
+    <span id="badge">2D preview</span>
+    <span id="fps" hidden></span>
+  </div>
+  <div id="tools" class="panel">
+    <label title="How much depth the 3D display shows">Depth <input id="depth" type="range" min="0" max="2" step="0.05" value="1"></label>
+    <button id="mode3d" class="chip" type="button" hidden>Switch to 2D</button>
+    <button id="mute" class="chip" type="button" aria-pressed="true">Sound on</button>
+    <button id="switch-kid" class="chip" type="button">Switch kid</button>
+  </div>
+</div>
+
+<section id="stickers" class="panel" aria-label="Stickers">
+  <header>
+    <h2>Stickers <span id="sticker-count">0/12</span></h2>
+    <button id="stickers-toggle" class="chip" type="button" aria-label="Show or hide the sticker list">Hide</button>
+  </header>
+  <ul id="sticker-list"></ul>
+  <button id="reset-stickers" type="button">Reset stickers</button>
+</section>
+
+<div id="help" class="panel">
+  <ul>
+    <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows: move &middot; <kbd>Shift</kbd> run</li>
+    <li><kbd>Space</kbd> jump &middot; <kbd>E</kbd> climb, slide, swing, ride</li>
+    <li>Drag to look around &middot; wheel to zoom &middot; <kbd>C</kbd> reset camera</li>
+    <li class="muted"><kbd>Tab</kbd> stickers &middot; <kbd>K</kbd> switch kid &middot; <kbd>M</kbd> sound &middot; <kbd>H</kbd> hide this</li>
+  </ul>
+</div>
+
+<div id="prompt" class="panel" role="status" aria-live="polite"></div>
+<div id="toast" class="panel" role="status" aria-live="polite"></div>
+
+<div id="touch">
+  <div id="stick"><div id="stick-knob"></div></div>
+  <button id="btn-action" class="tbtn" type="button">Action</button>
+  <button id="btn-jump" class="tbtn" type="button">Jump</button>
+</div>
+
+<div id="picker">
+  <div class="card panel" role="dialog" aria-labelledby="picker-title">
+    <button id="picker-close" type="button" aria-label="Close" hidden>&times;</button>
+    <h2 id="picker-title">Who wants to play?</h2>
+    <p>Pick your kid. Everyone else is already on the playground.</p>
+    <div id="kid-cards"></div>
+    <small>Climb, slide, swing and cannonball into the ball pit to collect all 12 stickers.</small>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/",
+  "@displayxr/inline3d": "https://cdn.jsdelivr.net/npm/@displayxr/inline3d@1.45.1/js/inline3d.js",
+  "@displayxr/inline3d/three": "https://cdn.jsdelivr.net/npm/@displayxr/inline3d@1.45.1/js/inline3d-three.js"
+} }
+</script>
+<script type="module" src="./js/main.js"></script>
 </body>
 </html>
