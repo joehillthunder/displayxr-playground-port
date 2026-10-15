@@ -42,7 +42,7 @@ export class Stage {
     r.autoClear = false;
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.toneMapping = THREE.ACESFilmicToneMapping;
-    r.toneMappingExposure = 1.05;
+    r.toneMappingExposure = 0.95;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     // One shadow pass per frame, shared by both eyes.
@@ -129,7 +129,7 @@ export class Stage {
     let w = Math.max(1, Math.round((this.canvas.clientWidth || 960) * dpr));
     let h = Math.max(1, Math.round((this.canvas.clientHeight || 540) * dpr));
     // Both axes by one factor, so the eye split stays at exactly half the buffer.
-    const s = Math.min(1, MAX_EYE_W / w);
+    const s = Math.min(1, (this.maxEyeW || MAX_EYE_W) / w);
     w = Math.floor(w * s);
     h = Math.floor(h * s);
     // Woven: a DOUBLE-WIDTH side-by-side store (left eye | right eye) in the same CSS box.

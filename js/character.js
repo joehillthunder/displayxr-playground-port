@@ -7,7 +7,7 @@
 // mode with ch.enter(mode, data); data.release(ch) runs when the kid leaves it.
 
 import * as THREE from 'three';
-import { mat } from './world.js';
+import { buildModel } from './kidmodel.js';
 import { clamp, damp, dampAngle, angleDiff } from './util.js';
 
 const G = -14;
@@ -17,119 +17,7 @@ export const RADIUS = 0.24;
 export const SKIN = [0xf6d2b8, 0xe8b48f, 0xc98e63, 0x9a6440, 0x6f4429, 0xffe0c7];
 export const HAIR = [0x2b1d14, 0x5a3a22, 0xc58b3f, 0xf2d27a, 0x111111, 0xa0451f];
 
-/**
- * Build a character model. Returns { root, parts } where root sits at the feet, facing +z.
- * look: { skin, hair, hairStyle, shirt, pants, shoes, skirt, adult, hat }
- */
-export function buildModel(look) {
-  const adult = !!look.adult;
-  const S = adult ? 1.45 : 1;
-  const legLen = (adult ? 0.5 : 0.42) * (adult ? 1.25 : 1);
-  const torsoLen = adult ? 0.62 : 0.38;
-  const headR = adult ? 0.15 : 0.165;
-  const shoulderW = adult ? 0.24 : 0.16;
-
-  const root = new THREE.Group();
-  const tilt = new THREE.Group(); // swing / lean rotations
-  root.add(tilt);
-  const hips = new THREE.Group();
-  hips.position.y = legLen;
-  tilt.add(hips);
-
-  const add = (parent, geo, color, x = 0, y = 0, z = 0, m) => {
-    const o = new THREE.Mesh(geo, m || mat(color));
-    o.position.set(x, y, z);
-    o.castShadow = true;
-    parent.add(o);
-    return o;
-  };
-
-  // Legs pivot at the hips and hang down -y.
-  const legs = [];
-  for (const sx of [-1, 1]) {
-    const leg = new THREE.Group();
-    leg.position.set(sx * (adult ? 0.1 : 0.075), 0, 0);
-    hips.add(leg);
-    const r = adult ? 0.075 : 0.068;
-    add(leg, new THREE.CapsuleGeometry(r, legLen - r * 2 - 0.04, 4, 8), look.pants, 0, -legLen / 2 + 0.02, 0);
-    const shoe = add(leg, new THREE.BoxGeometry(r * 2.1, 0.07, r * 3.2), look.shoes, 0, -legLen + 0.035, 0.035);
-    shoe.castShadow = true;
-    legs.push(leg);
-  }
-
-  const torso = new THREE.Group();
-  hips.add(torso);
-  const bodyR = adult ? 0.17 : 0.145;
-  add(torso, new THREE.CapsuleGeometry(bodyR, torsoLen - bodyR * 1.2, 4, 10), look.shirt, 0, torsoLen / 2, 0);
-  if (look.skirt) {
-    const sk = add(torso, new THREE.CylinderGeometry(bodyR * 0.95, bodyR * 1.6, 0.2, 14, 1, true), look.skirt, 0, 0.02, 0);
-    sk.material = mat(look.skirt, { side: THREE.DoubleSide });
-  }
-  if (look.stripe) add(torso, new THREE.CylinderGeometry(bodyR * 1.02, bodyR * 1.02, 0.06, 14), look.stripe, 0, torsoLen * 0.55, 0);
-
-  const arms = [];
-  for (const sx of [-1, 1]) {
-    const arm = new THREE.Group();
-    arm.position.set(sx * shoulderW, torsoLen * 0.88, 0);
-    torso.add(arm);
-    const len = adult ? 0.5 : 0.34;
-    add(arm, new THREE.CapsuleGeometry(adult ? 0.055 : 0.048, len - 0.1, 4, 8), look.sleeve ?? look.shirt, 0, -len / 2, 0);
-    const hand = add(arm, new THREE.SphereGeometry(adult ? 0.055 : 0.05, 10, 8), look.skin, 0, -len, 0);
-    arm.userData.hand = hand;
-    arm.rotation.z = sx * 0.12;
-    arms.push(arm);
-  }
-
-  const head = new THREE.Group();
-  head.position.y = torsoLen + headR * 0.95;
-  torso.add(head);
-  add(head, new THREE.SphereGeometry(headR, 18, 14), look.skin);
-  // Face: eyes, cheeks, a smile, all on the +z side.
-  const eyeM = mat(0x1d1d24, { roughness: 0.3 });
-  for (const sx of [-1, 1]) {
-    add(head, new THREE.SphereGeometry(headR * 0.13, 8, 6), 0, sx * headR * 0.36, headR * 0.12, headR * 0.9, eyeM);
-    const cheek = add(head, new THREE.SphereGeometry(headR * 0.12, 8, 6), 0xff8f8f, sx * headR * 0.56, -headR * 0.18, headR * 0.78);
-    cheek.scale.z = 0.4;
-    cheek.castShadow = false;
-  }
-  const smile = add(head, new THREE.TorusGeometry(headR * 0.26, headR * 0.045, 6, 12, Math.PI), 0, 0, -headR * 0.22, headR * 0.92, eyeM);
-  smile.rotation.z = Math.PI;
-  // Hair.
-  const hairM = mat(look.hair, { roughness: 0.9 });
-  const cap = add(head, new THREE.SphereGeometry(headR * 1.07, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), 0, 0, headR * 0.02, -headR * 0.06, hairM);
-  cap.rotation.x = -0.25;
-  const style = look.hairStyle || 'short';
-  if (style === 'pigtails') {
-    for (const sx of [-1, 1]) add(head, new THREE.SphereGeometry(headR * 0.42, 10, 8), 0, sx * headR * 1.05, headR * 0.15, -headR * 0.25, hairM);
-  } else if (style === 'ponytail') {
-    const p = add(head, new THREE.CapsuleGeometry(headR * 0.28, headR * 0.9, 4, 8), 0, 0, -headR * 0.3, -headR * 1.05, hairM);
-    p.rotation.x = 0.5;
-  } else if (style === 'curly') {
-    for (let i = 0; i < 9; i++) {
-      const a = (i / 9) * Math.PI * 2;
-      add(head, new THREE.SphereGeometry(headR * 0.36, 8, 6), 0, Math.cos(a) * headR * 0.85, headR * 0.45, Math.sin(a) * headR * 0.85 - headR * 0.15, hairM);
-    }
-  } else if (style === 'long') {
-    const back = add(head, new THREE.CapsuleGeometry(headR * 0.85, headR * 1.1, 4, 10), 0, 0, -headR * 0.55, -headR * 0.45, hairM);
-    back.scale.z = 0.55;
-  } else if (style === 'bun') {
-    add(head, new THREE.SphereGeometry(headR * 0.45, 10, 8), 0, 0, headR * 1.05, -headR * 0.35, hairM);
-  }
-  if (look.hat) {
-    const hm = mat(look.hat);
-    add(head, new THREE.SphereGeometry(headR * 1.1, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), 0, 0, headR * 0.12, 0, hm);
-    const brim = add(head, new THREE.CylinderGeometry(headR * 0.75, headR * 0.75, 0.02, 16, 1, false, -Math.PI / 2, Math.PI), 0, 0, headR * 0.18, headR * 0.55, hm);
-    brim.scale.z = 1.2;
-  }
-
-  root.scale.setScalar(look.scale ?? 1);
-  return {
-    root, tilt, hips, torso, head, legs, arms,
-    legLen, height: (legLen + torsoLen + headR * 2.1) * (look.scale ?? 1) * (adult ? 1 : 1),
-    scale: look.scale ?? 1,
-    hand: arms[1].userData.hand,
-  };
-}
+export { buildModel };
 
 // Target joint angles per pose. legs[i].x, arms[i].x/z, torso.x, hipsY offset (fraction of leg).
 function poseTargets(ch, out) {
@@ -186,6 +74,8 @@ function poseTargets(ch, out) {
   }
   // Seated grown-ups wave and throw from the bench.
   if (ch.mode === 'sit' && !sit) { sit = true; legL = legR = -1.5; }
+  // Talking while standing: little hand gestures.
+  if (ch.talkT > 0 && ch.mode === 'ground' && (ch.pose === 'idle')) { armR = -0.5 - Math.abs(Math.sin(ch.world.time * 5)) * 0.5; armL = -0.2 - Math.abs(Math.sin(ch.world.time * 3.3)) * 0.3; }
   if (ch.holding && !['climb', 'pole', 'slide', 'swing'].includes(ch.pose)) armR = -1.3;
   out.legL = legL; out.legR = legR; out.armL = armL; out.armR = armR; out.armZ = armZ; out.torso = torso; out.sit = sit; out.headX = headX;
   return out;
@@ -217,6 +107,14 @@ export class Character {
     this.input = { mx: 0, mz: 0, fwd: 0, run: false, jump: false, action: false };
     this.inPit = false;
     this.adult = adult;
+    // Face and talking.
+    this.talkT = 0;
+    this.blinkT = 1 + Math.random() * 3;
+    this.blink = 0;
+    this.lookTarget = null;
+    this.headYaw = 0;
+    this.convo = null;
+    this.voice = adult ? 150 + Math.random() * 80 : 330 + Math.random() * 160;
   }
 
   place(x, y, z, yaw = this.yaw) {
@@ -448,6 +346,42 @@ export class Character {
     if (this.mode === 'swing') tiltX = this.swingTilt || 0;
     else if (this.mode === 'slide') tiltX = (this.slideTilt || 0) * 0.6;
     m.tilt.rotation.x = damp(m.tilt.rotation.x, tiltX, 20, dt || 1);
+    this.syncFace(dt || 1 / 60);
+  }
+
+  // Blinks, a mouth that moves with speech, raised brows while talking, and the head turning toward
+  // whoever it is looking at (a conversation partner).
+  syncFace(dt) {
+    const m = this.model;
+    this.talkT = Math.max(0, this.talkT - dt);
+    this.blinkT -= dt;
+    if (this.blinkT < 0) { this.blink = 1; this.blinkT = 2 + Math.random() * 4; }
+    this.blink = Math.max(0, this.blink - dt * 7);
+    const k = Math.sin(this.blink * Math.PI);
+    for (const lid of m.lids) {
+      lid.userData.y0 ??= lid.position.y;
+      lid.scale.y = 0.05 + k * 1.05;
+      lid.position.y = lid.userData.y0 * (1 - k);
+    }
+    const talking = this.talkT > 0;
+    m.mouth.visible = talking;
+    m.smile.visible = !talking;
+    if (talking) {
+      const t = this.world.time;
+      m.mouth.scale.y = 0.25 + Math.abs(Math.sin(t * 17) * Math.sin(t * 5.3 + 1)) * 1.1;
+    }
+    for (const b of m.brows) {
+      b.userData.y0 ??= b.position.y;
+      b.position.y = damp(b.position.y, b.userData.y0 + (talking ? 0.012 : 0), 10, dt);
+    }
+    let want = 0;
+    const lt = this.lookTarget;
+    if (lt?.pos) {
+      want = angleDiff(this.yaw, Math.atan2(lt.pos.x - this.pos.x, lt.pos.z - this.pos.z));
+      want = clamp(want, -1.1, 1.1);
+    }
+    this.headYaw = damp(this.headYaw, want, 6, dt);
+    m.neck.rotation.y = this.headYaw;
   }
 
   /** World position of the top of the head (for speech bubbles). */

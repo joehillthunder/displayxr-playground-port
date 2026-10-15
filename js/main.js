@@ -16,6 +16,9 @@ import { Bubbles, Particles } from './fx.js';
 import { Sfx } from './audio.js';
 import { Input } from './input.js';
 import { angleDiff, clamp, damp, dist2D, pick, rand } from './util.js';
+import { Q, QUALITY, q, upgradeMaterials } from './materials.js';
+import { buildGrass } from './nature.js';
+import { Conversations } from './talk.js';
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -24,16 +27,26 @@ const store = {
   set(k, v) { try { localStorage.setItem('dxr-playground.' + k, v); } catch { /* private mode */ } },
 };
 
+// Graphics quality: ?quality=high|medium|low, else the last choice, else high.
+Q.level = [params.get('quality'), store.get('quality'), 'high'].find((v) => v in QUALITY);
+
 // ── world ─────────────────────────────────────────────────────────────────────────────────────
 const canvas = $('stage');
 const stage = new Stage(canvas);
+stage.maxEyeW = q().eyeW;
 const world = new World(stage.scene);
-buildScenery(world);
+const before = new Set(stage.scene.children);
+buildScenery(world, stage.renderer);
 const eq = buildEquipment(world);
+// Plain colours on the equipment, benches and sign become glossy plastic, painted metal and wood.
+upgradeMaterials(stage.scene.children.filter((o) => !before.has(o)));
+const grass = buildGrass(world, q().grass);
 const bubbles = new Bubbles(stage.scene);
 const fx = new Particles(stage.scene);
 const crowd = new Crowd(world, eq, bubbles, fx);
 const sfx = new Sfx();
+const talk = new Conversations(world, bubbles, sfx, () => player);
+crowd.talk = talk;
 
 const PLAYABLE = KID_LOOKS.slice(0, 4);
 let player = null;
@@ -99,10 +112,9 @@ function choosePlayer(i) {
     // The kid you were goes back to being an NPC... and the one you picked steps in.
     const old = crowd.kids.find((k) => k.ch.name === look.name);
     if (old) {
-      old.ch.leave();
+      crowd.removeKid(old);
       stage.scene.remove(old.ch.model.root);
       world.characters.splice(world.characters.indexOf(old.ch), 1);
-      crowd.kids.splice(crowd.kids.indexOf(old), 1);
     }
     const back = crowd.addKid(KID_LOOKS[playerLookIndex]);
     back.ch.place(pos.x + 1, 0, pos.z, yaw);
@@ -285,6 +297,27 @@ function openPicker() {
 }
 $('picker-close').addEventListener('click', () => { $('picker').hidden = true; });
 
+// The sun's shadow box follows the camera target, snapped to whole shadow-map texels so the
+// shadows don't shimmer as you move.
+const sunTexel = 34 / q().shadow;
+function followSun() {
+  const s = world.sun;
+  const x = Math.round(cam.target.x / sunTexel) * sunTexel;
+  const z = Math.round(cam.target.z / sunTexel) * sunTexel;
+  s.target.position.set(x, 0, z);
+  s.position.set(x + world.sunOffset.x, world.sunOffset.y, z + world.sunOffset.z);
+}
+
+const qualityEl = $('quality');
+qualityEl.value = Q.level;
+qualityEl.addEventListener('change', () => {
+  store.set('quality', qualityEl.value);
+  const u = new URL(location.href);
+  u.searchParams.delete('quality');
+  if (player) u.searchParams.set('kid', String(playerLookIndex));
+  location.href = u.toString();
+});
+
 // ── frame ─────────────────────────────────────────────────────────────────────────────────────
 const promptEl = $('prompt');
 let lastPrompt = '';
@@ -332,10 +365,13 @@ stage.onTick = (dt) => {
     }
   }
   world.update(dt);
+  talk.update(dt);
+  grass?.update(world.time, [...world.characters, crowd.dog, crowd.dad, crowd.vendor]);
   bubbles.update(dt);
   fx.update(dt);
   sfx.update(dt);
   updateCamera(dt, r.look);
+  followSun();
   updatePrompt();
   if (dev) {
     fpsT += dt; fpsN++;
@@ -399,10 +435,9 @@ if (kidParam != null && PLAYABLE[+kidParam]) {
     const k = crowd.kids.find((x) => x.ch.name === look.name);
     const pos = k ? k.ch.pos.clone() : new THREE.Vector3(-1, 0, 6.5);
     if (k) {
-      k.ch.leave();
+      crowd.removeKid(k);
       stage.scene.remove(k.ch.model.root);
       world.characters.splice(world.characters.indexOf(k.ch), 1);
-      crowd.kids.splice(crowd.kids.indexOf(k), 1);
     }
     player = new Character(world, look, { name: look.name, isPlayer: true });
     player.place(pos.x, 0, pos.z, Math.PI);

@@ -17,7 +17,7 @@ their own.
 |---|---|---|---|
 | Move | `W` `A` `S` `D` or arrows, `Shift` to run | Thumbstick (left side) | Left stick, `RT` to run |
 | Jump | `Space` | Jump | `A` |
-| Climb, slide, swing, ride, pet | `E` | Action | `X` / `B` |
+| Climb, slide, swing, ride, pet, talk | `E` | Action | `X` / `B` |
 | Look around | Drag, wheel to zoom, `C` to reset | Drag on the right side | Right stick |
 
 On the ladder and rock wall, `W` climbs and `S` goes down. On a swing, hold `W` to pump higher and
@@ -36,6 +36,23 @@ in your browser.
 - **Biscuit the dog** plays fetch with Dad. Pet him and he follows you around.
 - **Mom** reads on a bench, **Grandpa** feeds the pigeons, and the **ice-cream seller** hands out cones.
 - Pigeons scatter when you run at them, and butterflies drift over the flower beds.
+
+## Everyone talks
+
+Characters hold short conversations in speech bubbles that float at each speaker's depth, with a name
+tag in their shirt colour. The speaker's mouth moves, they babble in their own voice, and listeners
+turn their heads toward them.
+
+- **Kids meet up and make plans.** Two kids walk over to each other, chat, and often go off to do
+  something together ("Race you to the swings!").
+- **Kids chat while they play:** side by side on the swings, in the ball pit, on the seesaw or the
+  merry-go-round, up on the towers, and in the sandbox.
+- **Grown-ups join in.** Mom calls out to kids by name ("Five more minutes!"), Grandpa tells stories, Dad
+  offers the ball, Rosa takes ice-cream orders, and kids say hi to Biscuit, who woofs back.
+- **You can talk too.** Walk up to any kid and press `E` ("Talk to Leo"). They may invite you to play,
+  then head off to do it.
+
+The lines are scripted in `js/talk.js`, with no network or AI service involved.
 
 ## How depth is used
 
@@ -56,7 +73,14 @@ Eye separation grows with camera distance (`ipdFactorFor` in `js/stage.js`), so 
 from 7 m still has the depth of a model on a desk. The Depth slider scales it from 0 (flat) to 2.
 The per-eye buffer is capped at 2,560 px wide, and the shadow map renders once per frame for both eyes.
 
-URL options: `?kid=0`–`3` skips the picker, `?depth=0`–`2`, `?dev` shows fps.
+**Graphics.** Characters have detailed faces (irises, catch-lights, blinking lids, brows, a talking
+mouth) and knit-textured clothes. Equipment is glossy clearcoat plastic, painted metal, chrome and
+wood grain, all reflecting an environment map rendered from the sky. Up to 160,000 instanced grass
+blades sway in the wind and part around anyone walking through them. Trees have swaying crowns, and a
+4K sun shadow map follows the player. The **Quality** menu (High, Medium, Low) trades grass,
+shadow resolution and the per-eye resolution for speed on the 3D panel.
+
+URL options: `?kid=0`–`3` skips the picker, `?quality=high|medium|low`, `?depth=0`–`2`, `?dev` shows fps.
 
 ## Hardware
 
@@ -76,7 +100,10 @@ the sounds are synthesized with WebAudio.
 | `js/stage.js` | Renderer and the DisplayXR inline-3D session (camera rig, 2D fallback) |
 | `js/world.js` | Collision (surfaces, walls), interactables, scenery |
 | `js/equipment.js` | Towers, bridge, ladder, rock wall, pole, slides, plank, ball pit, swings, merry-go-round, seesaw, sandbox, ice-cream cart |
-| `js/character.js` | Kid model and movement modes, shared by the player and the NPCs |
+| `js/character.js` | Movement modes and animation, shared by the player and the NPCs |
+| `js/kidmodel.js` | The character model: face, hair, clothes |
+| `js/talk.js` | Conversation scripts and the runner (bubbles, mouths, head turns, voices) |
+| `js/materials.js`, `js/nature.js` | Materials, environment lighting, quality levels; grass and trees |
 | `js/npc.js` | NPC kid routines, grown-ups, the dog, pigeons, butterflies |
 | `js/ballpit.js` | 1,000-ball physics with a spatial hash |
 | `js/fx.js`, `js/audio.js`, `js/input.js` | Speech bubbles and confetti, sound effects, keyboard/touch/gamepad |

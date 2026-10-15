@@ -39,6 +39,7 @@
   #tools { padding: 8px 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
   #tools label { display: flex; align-items: center; gap: 6px; color: var(--muted); }
   #tools input[type=range] { width: 90px; accent-color: var(--blue); }
+  #tools select { font: inherit; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; padding: 2px 4px; background: #fff; color: var(--ink); }
   .chip { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 4px 10px; font-size: 13px; }
   .chip:hover { background: #f3f7fc; }
   #fps { font: 12px ui-monospace, Consolas, monospace; color: var(--muted); }
@@ -132,6 +133,7 @@
   </div>
   <div id="tools" class="panel">
     <label title="How much depth the 3D display shows">Depth <input id="depth" type="range" min="0" max="2" step="0.05" value="1"></label>
+    <label title="Graphics detail. Use Medium or Low if the 3D display feels slow.">Quality <select id="quality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
     <button id="mode3d" class="chip" type="button" hidden>Switch to 2D</button>
     <button id="mute" class="chip" type="button" aria-pressed="true">Sound on</button>
     <button id="switch-kid" class="chip" type="button">Switch kid</button>

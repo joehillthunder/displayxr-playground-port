@@ -11,11 +11,13 @@
 - [x] Characters: 8 kids (the player picks one of 4), Mom, Dad, Grandpa, the ice-cream seller,
       Biscuit the dog, pigeons, butterflies. NPC kids use all the equipment, and one joins you on the seesaw.
 - [x] 12 stickers, saved in localStorage.
+- [x] Conversations: kid-to-kid meetups with shared plans, chatter while playing, grown-ups talking to kids, ice-cream orders, the dog, and talking to NPC kids yourself (`E`).
+- [x] Higher-fidelity graphics: detailed faces with blinking and talking, fabric, clearcoat plastic, metal and wood, sky environment lighting, wind-blown instanced grass, better trees, a 4K shadow map that follows the player, and a Quality menu.
 - [x] HUD as 2D DOM over the woven canvas, a 2D/3D toggle (`setStereoEnabled`), and a Depth slider.
 - [x] Art and audio are all procedural (see `assets/LICENSES.md`).
 - [x] Headless check (Chrome, 2D path): no console errors, NPC routines cycle, and every sticker can be earned.
 - [ ] **Check on the Leia panel** in the DisplayXR Browser: woven, fps at full screen on the 8K
-      panel, and comfort of the default depth (convergence 1.08 × camera distance, ipdFactor up to 5).
+      panel at each Quality level (grass and the 4K shadow map are the big costs), and comfort of the default depth (convergence 1.08 × camera distance, ipdFactor up to 5).
       Tune `POP`, `ipdFactorFor` and `MAX_EYE_W` in `js/stage.js`.
 - [ ] Gameplay GIF for the README.
 - [ ] Optional: an agent hook (`start_game()`, `show_score()`) over the shared WebSocket/MCP bridge.

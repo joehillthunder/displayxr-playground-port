@@ -9,6 +9,8 @@
 
 import * as THREE from 'three';
 import { rand, segmentHitsRect } from './util.js';
+import { buildTree } from './nature.js';
+import { makeEnvironment, q, upgradeMaterials } from './materials.js';
 
 const matCache = new Map();
 export function mat(color, opts = {}) {
@@ -185,8 +187,9 @@ export class World {
 
 // ── scenery ────────────────────────────────────────────────────────────────────────────────────
 
-export function buildScenery(world) {
+export function buildScenery(world, renderer) {
   const { scene } = world;
+  const Qs = q();
 
   // Sky dome: a vertical gradient, plus fog that melts the far hills into it.
   const skyGeo = new THREE.SphereGeometry(300, 32, 16);
@@ -203,13 +206,19 @@ export function buildScenery(world) {
   scene.add(sky);
   scene.fog = new THREE.Fog(0xcfe9ff, 70, 220);
 
-  scene.add(new THREE.HemisphereLight(0xdcefff, 0x6f8f4a, 1.25));
-  const sun = new THREE.DirectionalLight(0xfff2d6, 2.6);
-  sun.position.set(14, 26, 12);
+  // Image-based light from the sky (reflections on plastic and metal) plus a warm sun. The sun's
+  // shadow box follows the camera target (main.js), so shadows stay crisp near the player.
+  const SUN_DIR = new THREE.Vector3(14, 26, 12);
+  scene.environment = makeEnvironment(renderer, SUN_DIR);
+  scene.add(new THREE.HemisphereLight(0xdcefff, 0x6f8f4a, 0.3));
+  const sun = new THREE.DirectionalLight(0xfff0d0, 2.5);
+  sun.position.copy(SUN_DIR);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(Qs.shadow, Qs.shadow);
   const sc = sun.shadow.camera;
-  sc.left = -26; sc.right = 26; sc.top = 20; sc.bottom = -20; sc.near = 1; sc.far = 80;
+  sc.left = -17; sc.right = 17; sc.top = 17; sc.bottom = -17; sc.near = 1; sc.far = 90;
+  world.sun = sun;
+  world.sunOffset = SUN_DIR.clone();
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.03;
   scene.add(sun);
@@ -218,13 +227,13 @@ export function buildScenery(world) {
   // Grass with a speckle texture so the ground has parallax cues.
   const grassTex = speckleTexture('#78c257', ['#6ab34b', '#86cf63', '#5fa843', '#93d66f'], 512, 2600);
   grassTex.repeat.set(40, 40);
-  const ground = world.mesh(new THREE.PlaneGeometry(240, 240), 0xffffff, 0, 0, 0, { cast: false, m: new THREE.MeshStandardMaterial({ map: grassTex, roughness: 1 }) });
+  const ground = world.mesh(new THREE.PlaneGeometry(240, 240), 0xffffff, 0, 0, 0, { cast: false, m: new THREE.MeshStandardMaterial({ map: grassTex, bumpMap: grassTex, bumpScale: 1.5, roughness: 1 }) });
   ground.rotation.x = -Math.PI / 2;
 
   // Soft rubber safety surfaces under the equipment and a gravel path loop.
   const pad = (x0, x1, z0, z1, color, y = 0.012, tex) => {
     const g = new THREE.PlaneGeometry(x1 - x0, z1 - z0);
-    const m = tex ? new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }) : mat(color, { roughness: 1 });
+    const m = tex ? new THREE.MeshStandardMaterial({ map: tex, bumpMap: tex, bumpScale: 2, roughness: 0.92 }) : mat(color, { roughness: 1 });
     const o = world.mesh(g, color, (x0 + x1) / 2, y, (z0 + z1) / 2, { cast: false, m });
     o.rotation.x = -Math.PI / 2;
     return o;
@@ -250,11 +259,11 @@ export function buildScenery(world) {
   // Trees ring the playground; distant hills and clouds give the far depth layers.
   const trees = [[-19, -13], [-13, -14], [-4, -14], [7, -14], [17, -13], [19.5, -5], [19, 9], [16, 13.5], [-17, 13], [-19.5, 4], [-19.5, -6], [-9, 14], [10, 14], [-24, 0], [24, 2], [-28, -18], [26, -18], [0, -20], [-10, -22], [12, -21]];
   for (const [x, z] of trees) buildTree(world, x, z, rand(0.85, 1.25));
-  const hillMat = new THREE.MeshStandardMaterial({ color: 0x6aa84f, roughness: 1, flatShading: true });
+  const hillMat = new THREE.MeshStandardMaterial({ color: 0x6aa84f, roughness: 1 });
   for (let i = 0; i < 14; i++) {
     const a = (i / 14) * Math.PI * 2 + rand(-0.1, 0.1);
     const r = rand(85, 120);
-    const h = new THREE.Mesh(new THREE.SphereGeometry(rand(18, 34), 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), hillMat);
+    const h = new THREE.Mesh(new THREE.SphereGeometry(rand(18, 34), 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), hillMat);
     h.position.set(Math.cos(a) * r, -2, Math.sin(a) * r);
     h.scale.y = rand(0.35, 0.6);
     scene.add(h);
@@ -263,9 +272,10 @@ export function buildScenery(world) {
   const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, emissive: 0xffffff, emissiveIntensity: 0.35, fog: false });
   for (let i = 0; i < 9; i++) {
     const c = new THREE.Group();
-    for (let k = 0; k < 5; k++) {
-      const s = new THREE.Mesh(new THREE.SphereGeometry(rand(1.6, 3), 12, 8), cloudMat);
-      s.position.set(k * 2 - 4 + rand(-0.5, 0.5), rand(-0.4, 0.8), rand(-1, 1));
+    for (let k = 0; k < 9; k++) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(rand(1.3, 2.8), 20, 14), cloudMat);
+      s.position.set(k * 1.2 - 5 + rand(-0.5, 0.5), rand(-0.3, 1.0) * (1 - Math.abs(k - 4) / 6), rand(-1.2, 1.2));
+      s.scale.y = 0.75;
       c.add(s);
     }
     c.position.set(rand(-70, 70), rand(26, 40), rand(-80, -20) * (i % 3 === 0 ? -1 : 1));
@@ -290,7 +300,7 @@ export function buildScenery(world) {
       world.rod(new THREE.Vector3(fx, 0, fz), new THREE.Vector3(fx, 0.35, fz), 0.012, 0x3f8f3a, { cast: false, seg: 4 });
       world.mesh(new THREE.SphereGeometry(0.07, 8, 6), petal[i % petal.length], fx, 0.38, fz, { cast: false });
     }
-    const bush = world.mesh(new THREE.SphereGeometry(0.6, 10, 8), 0x4f9a3a, x + 1.8, 0.35, z, {});
+    const bush = world.mesh(new THREE.SphereGeometry(0.6, 24, 16), 0x4f9a3a, x + 1.8, 0.35, z, {});
     bush.scale.y = 0.7;
   }
 
@@ -349,17 +359,6 @@ function buildFence(world) {
   inst.castShadow = true;
   inst.receiveShadow = true;
   world.scene.add(inst);
-}
-
-function buildTree(world, x, z, s) {
-  world.rod(new THREE.Vector3(x, 0, z), new THREE.Vector3(x, 2.4 * s, z), 0.22 * s, 0x7a5232, { seg: 8 });
-  const greens = [0x3f8f3a, 0x4aa043, 0x37803a, 0x5bb04d];
-  for (let i = 0; i < 4; i++) {
-    const r = rand(1.2, 1.7) * s;
-    const m = new THREE.MeshStandardMaterial({ color: greens[i % 4], roughness: 0.9, flatShading: true });
-    world.mesh(new THREE.IcosahedronGeometry(r, 1), 0, x + rand(-0.9, 0.9) * s, (2.8 + rand(0, 1.4)) * s, z + rand(-0.9, 0.9) * s, { m });
-  }
-  world.addWall(x - 0.25 * s, x + 0.25 * s, z - 0.25 * s, z + 0.25 * s, 0, 3, true);
 }
 
 function buildBench(world, x, z, yaw) {

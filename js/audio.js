@@ -91,6 +91,20 @@ export class Sfx {
   tag() { this.tone(880, 0.12, { type: 'square', vol: 0.05 }); this.tone(660, 0.18, { type: 'square', vol: 0.05, at: 0.12 }); }
   click() { this.tone(1200, 0.04, { vol: 0.06 }); }
 
+  // Babble: one blip per syllable-ish chunk, pitched around the speaker's voice, with a rise on questions.
+  voice(text, base = 400, adult = false) {
+    if (!this.ok) return;
+    const n = Math.min(14, Math.max(2, Math.round(text.replace(/[^a-z]/gi, '').length / 3.2)));
+    const q = text.trim().endsWith('?');
+    const ex = text.includes('!');
+    const step = adult ? 0.105 : 0.085;
+    for (let i = 0; i < n; i++) {
+      const rise = q && i > n - 3 ? 1.25 : 1;
+      const f = base * (0.85 + Math.random() * 0.35) * rise * (ex ? 1.08 : 1);
+      this.tone(f, step * 0.9, { type: adult ? 'triangle' : 'square', f1: f * (0.9 + Math.random() * 0.2), vol: adult ? 0.05 : 0.028, at: i * step + Math.random() * 0.02, attack: 0.01 });
+    }
+  }
+
   /** Ambient birdsong now and then. */
   update(dt) {
     this.birdT -= dt;

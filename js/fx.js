@@ -12,7 +12,7 @@ export class Bubbles {
     this.items = [];
   }
 
-  say(ch, text, dur = 2.4) {
+  say(ch, text, dur = 2.4, name = '') {
     // One bubble per speaker: a new line replaces the old one.
     const old = this.items.find((b) => b.ch === ch);
     if (old) this.remove(old);
@@ -20,29 +20,58 @@ export class Bubbles {
     const g = c.getContext('2d');
     const font = 'bold 44px "Trebuchet MS", system-ui, sans-serif';
     g.font = font;
-    const w = Math.ceil(g.measureText(text).width) + 56;
-    c.width = w;
-    c.height = 104;
-    g.font = font;
-    g.fillStyle = 'rgba(255,255,255,0.96)';
-    g.strokeStyle = 'rgba(40,50,70,0.25)';
+    // Wrap long lines in two.
+    let lines = [text];
+    if (text.length > 26) {
+      const words = text.split(' ');
+      let best = 1, bestW = Infinity;
+      for (let i = 1; i < words.length; i++) {
+        const w = Math.max(g.measureText(words.slice(0, i).join(' ')).width, g.measureText(words.slice(i).join(' ')).width);
+        if (w < bestW) { bestW = w; best = i; }
+      }
+      lines = [words.slice(0, best).join(' '), words.slice(best).join(' ')];
+    }
+    const nameH = name ? 38 : 0;
+    const textW = Math.max(...lines.map((l) => g.measureText(l).width));
+    const w = Math.ceil(textW) + 60;
+    const boxH = 30 + lines.length * 50;
+    c.width = Math.max(w, name ? 160 : 0);
+    c.height = nameH + boxH + 28;
+    const W = c.width;
+    g.fillStyle = 'rgba(255,255,255,0.97)';
+    g.strokeStyle = 'rgba(40,50,70,0.22)';
     g.lineWidth = 4;
     g.beginPath();
-    g.roundRect(4, 4, w - 8, 76, 30);
-    g.moveTo(w / 2 - 14, 78);
-    g.lineTo(w / 2, 100);
-    g.lineTo(w / 2 + 14, 78);
+    g.roundRect(4, nameH + 4, W - 8, boxH, 32);
+    g.moveTo(W / 2 - 16, nameH + boxH + 2);
+    g.lineTo(W / 2, nameH + boxH + 24);
+    g.lineTo(W / 2 + 16, nameH + boxH + 2);
     g.fill();
     g.stroke();
+    if (name) {
+      // A name tag in the speaker's shirt colour.
+      const col = '#' + (ch.look?.shirt ?? (ch.isDog ? 0xc8873f : 0x5b6a85)).toString(16).padStart(6, '0');
+      g.font = 'bold 28px "Trebuchet MS", system-ui, sans-serif';
+      const nw = g.measureText(name).width + 28;
+      g.fillStyle = col;
+      g.beginPath();
+      g.roundRect(18, 2, nw, 36, 18);
+      g.fill();
+      g.fillStyle = luminance(col) > 0.6 ? '#28324a' : '#ffffff';
+      g.textBaseline = 'middle';
+      g.fillText(name, 32, 21);
+    }
+    g.font = font;
     g.fillStyle = '#28324a';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText(text, w / 2, 44);
+    lines.forEach((l, i) => g.fillText(l, W / 2, nameH + 4 + 15 + 25 + i * 50));
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
-    const h = 0.34;
-    s.scale.set((h * w) / 104, h, 1);
+    const h = 0.34 * (c.height / 104);
+    s.scale.set((h * W) / c.height, h, 1);
     s.center.set(0.5, 0);
     s.renderOrder = 5;
     this.scene.add(s);
@@ -133,4 +162,9 @@ export class Particles {
       p.o.position.addScaledVector(p.v, dt);
     }
   }
+}
+
+function luminance(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
 }

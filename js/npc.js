@@ -285,6 +285,25 @@ const ACTIVITIES = {
       t -= yield;
     }
   },
+  // Find a friend, walk over and have a chat. The chat may end with a plan they do together.
+  *chat(k) {
+    const crowd = k.crowd;
+    if (!crowd.talk) return;
+    const cands = crowd.kids.filter((o) => o !== k && !o.ch.convo && o.ch.mode === 'ground' && o.ch.pos.y < 0.3 && (!o.activity || o.activity === 'wander') && dist2D(o.ch.pos, k.ch.pos) < 14);
+    if (!cands.length) return;
+    const o = pick(cands);
+    o.gen = meetPartner(o, k);
+    let t = 0;
+    while (dist2D(k.ch.pos, o.ch.pos) > 1.1 && t < 9) {
+      steer(k, o.ch.pos);
+      k.ch.input.run = dist2D(k.ch.pos, o.ch.pos) > 5;
+      t += yield;
+    }
+    if (dist2D(k.ch.pos, o.ch.pos) > 1.8 || k.ch.mode !== 'ground' || o.ch.mode !== 'ground') return;
+    const c = crowd.talk.start('meet', [k.ch, o.ch], { hold: true, onEnd: (cv) => { if (cv.then) { k.next = cv.then; o.next = cv.then; } } });
+    if (!c) return;
+    while (k.ch.convo === c) yield;
+  },
   *wander(k) {
     yield* walkTo(k, V(rand(-12, 14), 0, rand(-2, 12)), { timeout: 10 });
     yield* wait(rand(0.5, 2));
@@ -310,7 +329,27 @@ function* deckB(k) {
   }
 }
 
+function steer(k, p) {
+  const dx = p.x - k.ch.pos.x, dz = p.z - k.ch.pos.z, d = Math.hypot(dx, dz) || 1;
+  k.ch.input.mx = dx / d;
+  k.ch.input.mz = dz / d;
+}
+
+/** The friend who was called over: walk toward the caller, talk, then go along with the plan. */
+function* meetPartner(o, k) {
+  o.activity = 'chat';
+  let t = 0;
+  while (!o.ch.convo && t < 9) {
+    if (dist2D(o.ch.pos, k.ch.pos) > 1.0) steer(o, k.ch.pos);
+    t += yield;
+  }
+  while (o.ch.convo) yield;
+  o.activity = null;
+  yield* life(o, 0);
+}
+
 const WEIGHTS = [
+  ['chat', 1.8],
   ['ladderSlide', 3], ['wallClimb', 2.4], ['swing', 2.2], ['ballPit', 2], ['merry', 1.6],
   ['seesaw', 1], ['sandbox', 1.2], ['icecream', 0.5], ['tag', 0.7], ['wander', 0.6],
 ];
@@ -331,8 +370,8 @@ function chooseActivity(k) {
   return 'wander';
 }
 
-function* life(k) {
-  yield* wait(rand(0, 2));
+function* life(k, delay = rand(0, 2)) {
+  yield* wait(delay);
   for (;;) {
     const id = k.next || chooseActivity(k);
     k.next = null;
@@ -363,6 +402,9 @@ export class Crowd {
     this.adults = [];
     this.player = null;
     this.recruitT = 0;
+    this.chatT = 3;
+    this.adultT = 8;
+    this.talk = null; // Conversations, set by main.js
 
     // Grown-ups.
     const b = world.benches;
@@ -372,13 +414,13 @@ export class Crowd {
     book.rotation.x = -0.6;
     this.reader.model.torso.add(book);
     this.grandpa = this.addAdult({ name: 'Grandpa', skin: SKIN[0], hair: 0xdddddd, hairStyle: 'short', shirt: 0x8a6a4a, pants: 0x55606a, shoes: 0x3a3a3a, hat: 0x4a5a3a }, b[1].seat, b[1].yaw, 'sit');
-    this.vendor = this.addAdult({ name: 'Vendor', skin: SKIN[3], hair: HAIR[4], hairStyle: 'short', shirt: 0xffffff, sleeve: 0xffffff, pants: 0xff7ab8, shoes: 0xffffff, hat: 0xff7ab8 }, V(eq.cart.x, 0, eq.cart.z - 0.75), 0, null);
+    this.vendor = this.addAdult({ name: 'Rosa', skin: SKIN[3], hair: HAIR[4], hairStyle: 'bun', shirt: 0xffffff, sleeve: 0xffffff, pants: 0xff7ab8, shoes: 0xffffff, hat: 0xff7ab8 }, V(eq.cart.x, 0, eq.cart.z - 0.75), 0, null);
     this.dad = this.addAdult({ name: 'Dad', skin: SKIN[1], hair: HAIR[1], hairStyle: 'short', shirt: 0xff8c42, pants: 0x3a4a6a, shoes: 0xffffff, hat: 0x2f8fff }, V(16.5, 0, 7), -Math.PI / 2, null);
 
+    // Buying an ice cream is a little conversation with Rosa.
     world.on('icecream', (ch) => {
-      if (!ch.isPlayer && Math.random() < 0.5) return;
       this.vendor.setPose('wave', 1.6);
-      this.say(this.vendor, pick(['Here you go!', 'Enjoy!', 'Two scoops!']));
+      this.talk?.start('icecream', [this.vendor, ch], { hold: true });
     });
 
     this.dog = new Dog(world, this);
@@ -407,11 +449,98 @@ export class Crowd {
     k.gen.next();
     this.world.characters.push(ch);
     this.kids.push(k);
+    // Walk up to any kid and press E to chat.
+    k.talkIt = this.world.addInteractable({ id: 'talk-' + look.name, label: `Talk to ${look.name}`, pos: ch.pos, radius: 0,
+      near: (p) => {
+        if (!p.isPlayer || p.mode !== 'ground' || p.convo?.hold || ch.convo?.hold || !this.kids.includes(k)) return null;
+        if (ch.mode !== 'ground' && ch.mode !== 'sit') return null;
+        const d = dist2D(p.pos, ch.pos);
+        return d < 1.5 && Math.abs(p.pos.y - ch.pos.y) < 0.6 ? d + 0.2 : null;
+      },
+      use: (p) => this.chatWithPlayer(k, p) });
     return k;
   }
 
+  /** Take an NPC kid out of the crowd (when the player becomes that kid). */
+  removeKid(k) {
+    k.ch.leave();
+    if (k.ch.convo) this.talk?.end(k.ch.convo);
+    const its = this.world.interactables;
+    if (its.includes(k.talkIt)) its.splice(its.indexOf(k.talkIt), 1);
+    this.kids.splice(this.kids.indexOf(k), 1);
+  }
+
+  chatWithPlayer(k, p) {
+    // Stop what they were doing, turn and talk.
+    if (k.ch.mode === 'sit') k.ch.leave();
+    // A passing remark (Mom calling, chatter) gives way to a real chat.
+    if (p.convo) this.talk?.end(p.convo);
+    if (k.ch.convo) this.talk?.end(k.ch.convo);
+    const c = this.talk?.start('player', [k.ch, p], { hold: true, onEnd: (cv) => this.afterChat(cv) });
+    if (c) k.gen = idleThen(k, 0.2);
+  }
+
+  /** After a conversation: NPC kids in it carry out the plan they made together. */
+  afterChat(c) {
+    for (const p of c.parts) {
+      const k = this.kids.find((x) => x.ch === p);
+      if (!k) continue;
+      if (c.then && ACTIVITIES[c.then]) {
+        k.next = c.then;
+        k.gen = life(k, 0);
+      }
+      k.paused = false;
+    }
+  }
+
   say(ch, text, dur) {
-    this.bubbles.say(ch, text, dur);
+    if (ch.convo) return;
+    this.bubbles.say(ch, text, dur, ch.name);
+  }
+
+  /** Two NPC kids on the same thing, side by side, chat while they keep playing. */
+  contextChat() {
+    const ks = this.kids.filter((k) => !k.ch.convo && (k.ch.chatCool ?? 0) <= 0);
+    const pit = this.world.ballPit;
+    for (let i = 0; i < ks.length; i++) {
+      for (let j = i + 1; j < ks.length; j++) {
+        const a = ks[i].ch, b = ks[j].ch;
+        if (dist2D(a.pos, b.pos) > 3.2 || Math.abs(a.pos.y - b.pos.y) > 1.2) continue;
+        let kind = null;
+        if (a.mode === 'swing' && b.mode === 'swing') kind = 'swing';
+        else if (a.mode === 'seat' && b.mode === 'seat') kind = 'seesaw';
+        else if (pit.contains(a.pos.x, a.pos.z) && pit.contains(b.pos.x, b.pos.z) && a.pos.y < 0.6 && b.pos.y < 0.6) kind = 'pit';
+        else if (a.groundRef && a.groundRef === b.groundRef && a.groundRef === this.eq.merry.surface) kind = 'merry';
+        else if (a.mode === 'ground' && b.mode === 'ground' && a.pos.y > 1.4 && b.pos.y > 1.4) kind = 'tower';
+        else if (a.mode === 'sit' && b.mode === 'sit') kind = 'sandbox';
+        if (!kind || Math.random() > 0.55) continue;
+        if (this.talk.start(kind, [a, b])) { a.chatCool = b.chatCool = 14; return true; }
+      }
+    }
+    return false;
+  }
+
+  /** Grown-ups call out to kids (and to you), and kids say hi to Biscuit. */
+  adultChat() {
+    const near = (a, r) => [...this.kids.map((k) => k.ch), this.player].filter((c) => c && !c.convo && dist2D(c.pos, a.pos) < r);
+    const mom = this.reader;
+    if (!mom.convo && Math.random() < 0.5) {
+      const c = pick(near(mom, 11));
+      if (c) return this.talk.start('mom', [mom, c]);
+    }
+    if (!this.grandpa.convo && Math.random() < 0.4) {
+      const c = pick(near(this.grandpa, 6));
+      if (c) return this.talk.start('grandpa', [this.grandpa, c]);
+    }
+    if (!this.dad.convo && Math.random() < 0.4) {
+      const c = pick(near(this.dad, 6));
+      if (c) return this.talk.start('dad', [this.dad, c]);
+    }
+    if (!this.dog.convo) {
+      const c = pick(near(this.dog, 2.2).filter((x) => !x.isPlayer));
+      if (c) return this.talk.start('dog', [c, this.dog]);
+    }
+    return null;
   }
 
   update(dt) {
@@ -420,9 +549,17 @@ export class Crowd {
       inp.mx = inp.mz = inp.fwd = 0;
       inp.run = false;
       k.player = this.player;
-      k.gen.next(dt);
+      k.ch.chatCool = Math.max(0, (k.ch.chatCool ?? 0) - dt);
+      // Kids who stopped to talk stand still until the conversation ends.
+      if (!(k.ch.convo?.hold && k.ch.mode === 'ground')) k.gen.next(dt);
       k.ch.update(dt);
       if (k.ch.holding && (k.ch.holdT -= dt) < 0) dropHolding(k.ch);
+    }
+    if (this.talk) {
+      this.chatT -= dt;
+      if (this.chatT <= 0) this.chatT = this.contextChat() ? 6 : 2;
+      this.adultT -= dt;
+      if (this.adultT <= 0) this.adultT = this.adultChat() ? 14 : 5;
     }
     // Ask an NPC kid to join the player on the seesaw.
     const ss = this.eq.seesaw;
@@ -430,23 +567,23 @@ export class Crowd {
     const pSide = ss.occ.findIndex((c) => c?.isPlayer);
     if (pSide >= 0 && !ss.occ[1 - pSide] && this.recruitT <= 0 && !this.kids.some((k) => k.busyFor === 'seesaw')) {
       this.recruitT = 3;
-      const free = this.kids.filter((k) => k.ch.mode === 'ground' && k.ch.pos.y < 0.3 && k.activity !== 'seesaw');
+      const free = this.kids.filter((k) => k.ch.mode === 'ground' && k.ch.pos.y < 0.3 && k.activity !== 'seesaw' && !k.ch.convo);
       free.sort((a, b) => dist2D(a.ch.pos, ss.group.position) - dist2D(b.ch.pos, ss.group.position));
       const k = free[0];
       if (k) {
         k.next = 'seesaw';
         k.recruited = true;
         k.busyFor = 'seesaw';
-        k.gen = life(k);
+        k.gen = life(k, 0);
         this.say(k.ch, "I'll play with you!");
       }
     }
-    // Adults: wave at the player now and then.
+    // Grown-ups: wave at the player when they come close.
     for (const a of this.adults) {
-      if (this.player && dist2D(a.pos, this.player.pos) < 3 && !a.waved && a !== this.dad) {
+      if (this.player && dist2D(a.pos, this.player.pos) < 3 && !a.waved && a !== this.dad && !a.convo) {
         a.waved = true;
         a.setPose('wave', 1.6);
-        this.say(a, pick(a === this.vendor ? ['Ice cream!', 'Fancy a cone?'] : a === this.grandpa ? ['Hello there!', 'Lovely day!'] : ['Hi sweetie!', 'Be careful up there!', 'Having fun?']));
+        this.say(a, pick(a === this.vendor ? ['Ice cream!', 'Fancy a cone?'] : a === this.grandpa ? ['Hello there!', 'Lovely day!'] : ['Hi sweetie!', 'Having fun?']));
         setTimeout(() => { a.waved = false; }, 20000);
       }
       a.input.mx = a.input.mz = 0;
@@ -460,6 +597,15 @@ export class Crowd {
     this.pigeons.update(dt);
     this.butterflies.update(dt);
   }
+}
+
+/** Stand still while a chat runs, then carry on with life. */
+function* idleThen(k, t) {
+  k.paused = true;
+  yield* wait(t);
+  while (k.ch.convo) yield;
+  k.paused = false;
+  yield* life(k, 0.3);
 }
 
 function dropHolding(ch) {
@@ -479,6 +625,10 @@ class Dog {
     this.phase = 0;
     this.target = this.pos.clone();
     this.name = 'Biscuit';
+    this.isDog = true;
+    this.convo = null;
+    this.lookTarget = null;
+    this.talkT = 0;
     this.height = 0.7;
     this.mode = 'ground';
     const g = (this.root = new THREE.Group());
@@ -539,7 +689,7 @@ class Dog {
     ch.setPose('push', 1.2);
     this.crowd.fx.hearts(V(this.pos.x, 1.0, this.pos.z), 5);
     this.world.emit('bark', this);
-    this.crowd.say(this, pick(['Woof!', 'Arf arf!', 'Woof woof!']), 1.6);
+    if (!this.convo) this.crowd.bubbles.say(this, pick(['Woof!', 'Arf arf!', 'Woof woof!']), 1.6, 'Biscuit');
     this.world.award(ch, 'dog');
     this.followT = 12;
     this.followWho = ch;
